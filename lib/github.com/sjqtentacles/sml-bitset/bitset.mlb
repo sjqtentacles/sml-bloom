@@ -1,0 +1,8 @@
+(* MLton basis file for the sml-bitset library.
+ * Brings `structure Bitset` (matching BITSET) into scope. *)
+local
+  $(SML_LIB)/basis/basis.mlb
+in
+  bitset.sig
+  bitset.sml
+end

@@ -1,0 +1,13 @@
+(* Source files for sml-bloom, in dependency order.
+
+   The vendored sml-bitset provides the packed-bit backing store; sml-codec
+   provides SHA-256 for the hash functions. Neither dependency requires the
+   other, so both are listed directly here. *)
+
+$(SML_LIB)/basis/basis.mlb
+
+../sml-bitset/sources.mlb
+../sml-codec/sources.mlb
+
+bloom.sig
+bloom.sml

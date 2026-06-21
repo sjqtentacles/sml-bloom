@@ -1,0 +1,5 @@
+package github.com/sjqtentacles/sml-bloom
+require {
+  github.com/sjqtentacles/sml-bitset
+  github.com/sjqtentacles/sml-codec
+}
