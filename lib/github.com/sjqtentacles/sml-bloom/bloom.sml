@@ -79,4 +79,112 @@ struct
     in
       Math.pow (fill, Real.fromInt k)
     end
+
+  fun sameShape (a : t, b : t) = #m a = #m b andalso #k a = #k b
+
+  fun union (a : t, b : t) =
+    if not (sameShape (a, b)) then raise Size
+    else { m = #m a, k = #k a, bits = Bitset.union (#bits a, #bits b) }
+
+  fun intersect (a : t, b : t) =
+    if not (sameShape (a, b)) then raise Size
+    else { m = #m a, k = #k a, bits = Bitset.inter (#bits a, #bits b) }
+
+  fun approxCount ({ m, k, bits } : t) =
+    let
+      val mr = Real.fromInt m
+      val x  = Real.fromInt (Bitset.count bits)
+      (* clamp X strictly below m so ln is finite even for a saturated filter *)
+      val ratio = Real.min (x / mr, 1.0 - 1.0 / mr)
+    in
+      ~(mr / Real.fromInt k) * Math.ln (1.0 - ratio)
+    end
+
+  (* ---- serialization ----------------------------------------------------
+     Layout (before Base16): the ASCII tag "BLM1", then m and k each as four
+     big-endian bytes, then each set-bit index as four big-endian bytes, in
+     ascending order. The whole thing is hex-encoded so it is a printable,
+     compiler-independent string. *)
+  fun put32 n =
+    let
+      val w = Word32.fromInt n
+      fun b sh = Char.chr (Word32.toInt (Word32.andb (Word32.>> (w, sh), 0wxFF)))
+    in
+      String.implode [b 0w24, b 0w16, b 0w8, b 0w0]
+    end
+
+  fun get32 (s, off) =
+    let
+      fun byte j = Word32.fromInt (Char.ord (String.sub (s, off + j)))
+      val w = Word32.orb (Word32.<< (byte 0, 0w24),
+              Word32.orb (Word32.<< (byte 1, 0w16),
+              Word32.orb (Word32.<< (byte 2, 0w8), byte 3)))
+    in
+      Word32.toInt w
+    end
+
+  fun toBytes ({ m, k, bits } : t) =
+    let
+      val idxs = Bitset.toList bits
+      val body = String.concat ("BLM1" :: put32 m :: put32 k
+                                 :: List.map put32 idxs)
+    in
+      Base16.encode body
+    end
+
+  fun fromBytes hex =
+    case Base16.decode hex of
+        NONE => NONE
+      | SOME raw =>
+          let val len = String.size raw in
+            if len < 12 orelse String.substring (raw, 0, 4) <> "BLM1"
+               orelse (len - 12) mod 4 <> 0
+            then NONE
+            else
+              let
+                val m = get32 (raw, 4)
+                val k = get32 (raw, 8)
+                val nIdx = (len - 12) div 4
+                fun rd i = get32 (raw, 12 + 4 * i)
+                val idxs = List.tabulate (nIdx, rd)
+              in
+                if m < 1 orelse k < 1 orelse List.exists (fn i => i < 0 orelse i >= m) idxs
+                then NONE
+                else SOME { m = m, k = k, bits = Bitset.fromList m idxs }
+              end
+          end
+
+  (* ---- counting Bloom filter -------------------------------------------- *)
+  type counting =
+    { m : int, k : int, counts : int Array.array }
+
+  fun makeCounting n p =
+    let
+      val { m, k, ... } = make n p
+    in
+      { m = m, k = k, counts = Array.array (m, 0) }
+    end
+
+  fun bumpC (cf : counting) key delta =
+    let
+      val counts' = Array.tabulate (#m cf, fn i => Array.sub (#counts cf, i))
+      val idxs = List.tabulate (#k cf, fn i => indexOf (#m cf) i key)
+      val () = List.app (fn idx =>
+        let val cur = Array.sub (counts', idx)
+            val nv  = cur + delta
+        in Array.update (counts', idx, if nv < 0 then 0 else nv) end) idxs
+    in
+      { m = #m cf, k = #k cf, counts = counts' }
+    end
+
+  fun insertC cf key = bumpC cf key 1
+  fun deleteC cf key = bumpC cf key ~1
+
+  fun memberC (cf : counting) key =
+    List.all (fn i => Array.sub (#counts cf, indexOf (#m cf) i key) > 0)
+             (List.tabulate (#k cf, fn i => i))
+
+  fun capacityC  (cf : counting) = #m cf
+  fun hashCountC (cf : counting) = #k cf
+  fun countSumC  (cf : counting) = Array.foldl op+ 0 (#counts cf)
 end

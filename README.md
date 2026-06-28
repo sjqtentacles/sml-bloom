@@ -47,6 +47,24 @@ val _ = Bloom.member bf "never-inserted"   (* => false (with high probability) *
 
 (* Estimated false-positive rate from the current fill ratio. *)
 val _ = Bloom.falsePositiveRate bf         (* => ~0.0105 *)
+
+(* Set algebra on shape-compatible filters (same m and k). *)
+val a = Bloom.insert (Bloom.insert (Bloom.make 100 0.01) "x") "y"
+val b = Bloom.insert (Bloom.insert (Bloom.make 100 0.01) "y") "z"
+val _ = Bloom.union (a, b)        (* contains x, y, z *)
+val _ = Bloom.intersect (a, b)    (* contains y (approximate) *)
+
+(* Estimate how many distinct keys were inserted, from the fill ratio. *)
+val _ = Bloom.approxCount bf      (* => ~1000 *)
+
+(* Serialize to a printable, compiler-independent hex string and back. *)
+val hex = Bloom.toBytes bf
+val SOME bf' = Bloom.fromBytes hex
+
+(* Counting variant supports deletion (use only for keys you inserted). *)
+val cf = Bloom.insertC (Bloom.makeCounting 100 0.01) "k"
+val _  = Bloom.memberC cf "k"               (* => true  *)
+val _  = Bloom.memberC (Bloom.deleteC cf "k") "k"  (* => false *)
 ```
 
 ## API
@@ -61,7 +79,30 @@ sig
   val capacity          : t -> int         (* bit-array size m *)
   val bitCount          : t -> int         (* number of set bits *)
   val hashCount         : t -> int         (* k *)
-  val falsePositiveRate : t -> real         (* estimated from fill ratio *)
+  val falsePositiveRate : t -> real        (* estimated from fill ratio *)
+
+  (* Set algebra; both filters must share m and k (else Size). Union is exact;
+     intersect is approximate (never reports a key absent from both, but may
+     carry extra bits). *)
+  val union     : t * t -> t
+  val intersect : t * t -> t
+
+  (* Estimate distinct inserted keys: -(m/k) · ln(1 - setBits/m). *)
+  val approxCount : t -> real
+
+  (* Self-describing hex serialization; fromBytes is NONE on malformed input. *)
+  val toBytes   : t -> string
+  val fromBytes : string -> t option
+
+  (* Counting Bloom filter: integer counters per slot, supports delete. *)
+  type counting
+  val makeCounting : int -> real -> counting
+  val insertC      : counting -> string -> counting
+  val deleteC      : counting -> string -> counting
+  val memberC      : counting -> string -> bool
+  val capacityC    : counting -> int
+  val hashCountC   : counting -> int
+  val countSumC    : counting -> int
 end
 ```
 
@@ -75,6 +116,20 @@ Given `n` expected elements and a target false-positive rate `p`:
 Each of the `k` hashes digests `chr(i) ^ key` with SHA-256 and takes a 31-bit
 window from the front of the digest, reduced modulo `m`. The estimated
 false-positive rate is `(setBits / m) ^ k`.
+
+### Notes on the new operations
+
+- **`union` / `intersect`** require both operands to have identical `m` and `k`
+  (raise `Size` otherwise). `union` is exact. `intersect` is conservative: it
+  may contain extra set bits relative to a true element-wise intersection, so
+  its false-positive rate can exceed either input's.
+- **`approxCount`** is a statistical estimate; it is most accurate well below
+  saturation and is clamped so a fully saturated filter does not blow up.
+- **Counting filter (`delete`)**: deletion is only sound for keys that were
+  actually inserted. Deleting a key that was never added (or deleting one more
+  time than it was inserted) can introduce false negatives. Counters are
+  floored at zero. Serialization (`toBytes`/`fromBytes`) covers the plain
+  filter only.
 
 ## Testing
 

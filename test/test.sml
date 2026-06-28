@@ -66,6 +66,56 @@ struct
       val bfB = Bloom.insert bfA "beta"
       val () = check "second insert keeps first key"
                      (Bloom.member bfB "alpha" andalso Bloom.member bfB "beta")
+
+      (* ---- 7. union / intersect ------------------------------------- *)
+      val () = section "union-intersect"
+      val small = Bloom.make 100 0.01
+      val u1 = insertAll small ["a", "b", "c"]
+      val u2 = insertAll small ["c", "d", "e"]
+      val uU = Bloom.union (u1, u2)
+      val () = check "union has all keys of both"
+                     (List.all (fn k => Bloom.member uU k) ["a","b","c","d","e"])
+      val uI = Bloom.intersect (u1, u2)
+      val () = check "intersect has the common key" (Bloom.member uI "c")
+      val () = checkRaises "union of mismatched filters raises"
+                 (fn () => Bloom.union (small, Bloom.make 200 0.01))
+
+      (* ---- 8. approxCount ------------------------------------------- *)
+      val () = section "approxCount"
+      val bfCount = insertAll (Bloom.make 1000 0.01) (items "k" 500)
+      val est = Bloom.approxCount bfCount
+      val () = check ("approxCount near 500 (got " ^ Real.toString est ^ ")")
+                     (Real.abs (est - 500.0) < 50.0)
+      val () = check "approxCount of empty is ~0"
+                     (Real.abs (Bloom.approxCount small) < 1.0)
+
+      (* ---- 9. toBytes / fromBytes ----------------------------------- *)
+      val () = section "serialization"
+      val ser = Bloom.toBytes bfCount
+      val () = check "round-trips to same membership"
+                 (case Bloom.fromBytes ser of
+                      SOME bf' =>
+                        Bloom.capacity bf' = Bloom.capacity bfCount
+                        andalso Bloom.hashCount bf' = Bloom.hashCount bfCount
+                        andalso Bloom.bitCount bf' = Bloom.bitCount bfCount
+                        andalso List.all (fn k => Bloom.member bf' k) (items "k" 500)
+                    | NONE => false)
+      val () = checkBool "fromBytes rejects garbage"
+                 (true, not (isSome (Bloom.fromBytes "zzz")))
+      val () = checkBool "fromBytes rejects wrong tag"
+                 (true, not (isSome (Bloom.fromBytes (Base16.encode "XXXX"))))
+
+      (* ---- 10. counting Bloom (delete) ------------------------------ *)
+      val () = section "counting"
+      val cf0 = Bloom.makeCounting 100 0.01
+      val cf1 = Bloom.insertC (Bloom.insertC cf0 "x") "y"
+      val () = check "counting members present"
+                     (Bloom.memberC cf1 "x" andalso Bloom.memberC cf1 "y")
+      val cf2 = Bloom.deleteC cf1 "x"
+      val () = checkBool "deleted key is gone" (false, Bloom.memberC cf2 "x")
+      val () = checkBool "other key survives delete" (true, Bloom.memberC cf2 "y")
+      val () = checkInt "countSum after delete equals one insert"
+                        (Bloom.hashCountC cf0, Bloom.countSumC cf2)
     in
       Harness.run ()
     end

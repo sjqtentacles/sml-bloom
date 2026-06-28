@@ -40,4 +40,37 @@ sig
   (* Estimated false-positive rate given the current fill ratio:
      (setBits / m) ^ k. *)
   val falsePositiveRate : t -> real
+
+  (* Union / intersection of two filters that share the same `m` and `k`
+     (raise `Size` otherwise). Union is exact: it contains exactly the keys of
+     either input. Intersection is approximate: it never reports a key absent
+     from both inputs, but may carry extra bits and so its false-positive rate
+     can exceed either input's. *)
+  val union     : t * t -> t
+  val intersect : t * t -> t
+
+  (* Estimate the number of distinct keys inserted, from the fill ratio:
+     -(m/k) * ln(1 - X/m), where X is the set-bit count. *)
+  val approxCount : t -> real
+
+  (* Serialize to / from a self-describing byte string. `fromBytes` returns
+     NONE on a malformed or truncated encoding. Round-trips m, k and bits. *)
+  val toBytes   : t -> string
+  val fromBytes : string -> t option
+
+  (* --- Counting Bloom filter ---------------------------------------------
+     A counting variant backs each position with a small integer counter
+     instead of a single bit, which lets it support deletion. `delete` is
+     safe only for keys that were actually inserted; deleting a key that was
+     never added can introduce false negatives. *)
+  type counting
+
+  val makeCounting   : int -> real -> counting
+  val insertC        : counting -> string -> counting
+  val deleteC        : counting -> string -> counting
+  val memberC        : counting -> string -> bool
+  val capacityC      : counting -> int
+  val hashCountC     : counting -> int
+  (* Total of all counters (= sum over inserts of k, minus deletes). *)
+  val countSumC      : counting -> int
 end
