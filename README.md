@@ -131,6 +131,45 @@ false-positive rate is `(setBits / m) ^ k`.
   floored at zero. Serialization (`toBytes`/`fromBytes`) covers the plain
   filter only.
 
+## Example
+
+`make example` builds and runs [`examples/demo.sml`](examples/demo.sml), which
+inserts a few keys into a Bloom filter, inspects its size/fill statistics,
+unions two filters, round-trips one through `toBytes`/`fromBytes`, and
+exercises a counting filter's insert/delete symmetry (output is
+byte-identical under MLton and Poly/ML):
+
+```
+=== sml-bloom demo ===
+
+Membership after inserting apple, banana, cherry:
+  member "apple" = true
+  member "banana" = true
+  member "cherry" = true
+  member "date" (never inserted) = false
+
+Filter statistics:
+  capacity (m)      = 959
+  bitCount          = 21
+  hashCount (k)     = 7
+  falsePositiveRate = 0.000000
+  approxCount       = 3.033 (actual inserts: 3)
+
+Union of two same-shaped filters:
+  member "apple" in union = true
+  member "cherry" in union = true
+  member "elderberry" in union = false
+
+toBytes / fromBytes round trip:
+  serialized length = 192 hex chars
+  member "apple" after round trip = true
+
+Counting filter: insert "grape" twice, then delete it twice:
+  countSumC after 2 inserts        = 14
+  memberC "grape" after 1 of 2 deletes = true
+  memberC "grape" after 2 of 2 deletes = false
+```
+
 ## Testing
 
 ```
