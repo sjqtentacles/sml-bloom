@@ -1,5 +1,7 @@
 # sml-bloom
 
+[![CI](https://github.com/sjqtentacles/sml-bloom/actions/workflows/ci.yml/badge.svg)](https://github.com/sjqtentacles/sml-bloom/actions/workflows/ci.yml)
+
 Bloom filter with optimal sizing and SHA-256 hashing in pure Standard ML.
 
 A Bloom filter is a space-efficient probabilistic set. Membership queries
